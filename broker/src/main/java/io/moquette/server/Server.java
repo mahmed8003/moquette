@@ -15,6 +15,16 @@
  */
 package io.moquette.server;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.hazelcast.config.ClasspathXmlConfig;
 import com.hazelcast.config.Config;
 import com.hazelcast.config.FileSystemXmlConfig;
@@ -22,30 +32,24 @@ import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.core.HazelcastInstanceNotActiveException;
 import com.hazelcast.core.ITopic;
+
 import io.moquette.BrokerConstants;
 import io.moquette.interception.HazelcastInterceptHandler;
 import io.moquette.interception.HazelcastMsg;
 import io.moquette.interception.InterceptHandler;
 import io.moquette.parser.proto.messages.PublishMessage;
-import io.moquette.server.config.MemoryConfig;
-import io.moquette.spi.impl.ProtocolProcessorBootstrapper;
 import io.moquette.server.config.FilesystemConfig;
 import io.moquette.server.config.IConfig;
+import io.moquette.server.config.MemoryConfig;
 import io.moquette.server.netty.NettyAcceptor;
+import io.moquette.spi.IPersistentStore;
 import io.moquette.spi.impl.ProtocolProcessor;
+import io.moquette.spi.impl.ProtocolProcessorBootstrapper;
 import io.moquette.spi.impl.subscriptions.Subscription;
+import io.moquette.spi.persistence.MapDBPersistentStore;
 import io.moquette.spi.security.IAuthenticator;
 import io.moquette.spi.security.IAuthorizator;
 import io.moquette.spi.security.ISslContextCreator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Properties;
 
 /**
  * Launch a  configured version of the server.
@@ -124,12 +128,12 @@ public class Server {
      * set of InterceptHandler.
      * */
     public void startServer(IConfig config, List<? extends InterceptHandler> handlers) throws IOException {
-        startServer(config, handlers, null, null, null);
+        startServer(config, handlers, null, null, null, null);
     }
 
     public void startServer(IConfig config, List<? extends InterceptHandler> handlers,
                             ISslContextCreator sslCtxCreator, IAuthenticator authenticator,
-                            IAuthorizator authorizator) throws IOException {
+                            IAuthorizator authorizator, IPersistentStore persistentStore) throws IOException {
         if (handlers == null) {
             handlers = Collections.emptyList();
         }
@@ -141,7 +145,10 @@ public class Server {
         configureCluster(config);
         LOG.info("Persistent store file: {}", config.getProperty(BrokerConstants.PERSISTENT_STORE_PROPERTY_NAME));
         m_processorBootstrapper = new ProtocolProcessorBootstrapper();
-        final ProtocolProcessor processor = m_processorBootstrapper.init(config, handlers, authenticator, authorizator, this);
+        if(persistentStore == null) {
+        	persistentStore = new MapDBPersistentStore(config);
+        }
+        final ProtocolProcessor processor = m_processorBootstrapper.init(config, handlers, authenticator, authorizator, this, persistentStore);
 
         if (sslCtxCreator == null) {
             sslCtxCreator = new DefaultMoquetteSslContextCreator(config);

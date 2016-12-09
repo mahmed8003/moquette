@@ -16,14 +16,8 @@
 
 package io.moquette.spi.persistence;
 
-import io.moquette.server.config.IConfig;
-import io.moquette.spi.IMessagesStore;
-import io.moquette.spi.ISessionsStore;
-import io.moquette.parser.proto.MQTTException;
-import org.mapdb.DB;
-import org.mapdb.DBMaker;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static io.moquette.BrokerConstants.AUTOSAVE_INTERVAL_PROPERTY_NAME;
+import static io.moquette.BrokerConstants.PERSISTENT_STORE_PROPERTY_NAME;
 
 import java.io.File;
 import java.io.IOException;
@@ -32,13 +26,21 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static io.moquette.BrokerConstants.PERSISTENT_STORE_PROPERTY_NAME;
-import static io.moquette.BrokerConstants.AUTOSAVE_INTERVAL_PROPERTY_NAME;
+import org.mapdb.DB;
+import org.mapdb.DBMaker;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.moquette.parser.proto.MQTTException;
+import io.moquette.server.config.IConfig;
+import io.moquette.spi.IMessagesStore;
+import io.moquette.spi.IPersistentStore;
+import io.moquette.spi.ISessionsStore;
 
 /**
  * MapDB main persistence implementation
  */
-public class MapDBPersistentStore {
+public class MapDBPersistentStore implements IPersistentStore {
 
     /**
      * This is a DTO used to persist minimal status (clean session and activation status) of
@@ -70,14 +72,17 @@ public class MapDBPersistentStore {
     /**
      * Factory method to create message store backed by MapDB
      * */
+    @Override
     public IMessagesStore messagesStore() {
         return m_messageStore;
     }
 
+    @Override
     public ISessionsStore sessionsStore() {
         return m_sessionsStore;
     }
     
+    @Override
     public void initStore() {
         if (m_storePath == null || m_storePath.isEmpty()) {
             m_db = DBMaker.newMemoryDB().make();
@@ -108,6 +113,7 @@ public class MapDBPersistentStore {
         m_sessionsStore.initStore();
     }
 
+    @Override
     public void close() {
         if (this.m_db.isClosed()) {
             LOG.debug("already closed");
