@@ -15,6 +15,20 @@
  */
 package io.moquette.spi.persistence;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.mapdb.DB;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.moquette.spi.ClientSession;
 import io.moquette.spi.IMessagesStore.StoredMessage;
 import io.moquette.spi.ISessionsStore;
@@ -22,13 +36,6 @@ import io.moquette.spi.MessageGUID;
 import io.moquette.spi.impl.Utils;
 import io.moquette.spi.impl.subscriptions.Subscription;
 import io.moquette.spi.persistence.MapDBPersistentStore.PersistentSession;
-import org.mapdb.DB;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * ISessionsStore implementation backed by MapDB.
@@ -59,21 +66,22 @@ class MapDBSessionsStore implements ISessionsStore {
 
     @Override
     public void initStore() {
-        m_inflightStore = m_db.getHashMap("inflight");
-        m_inFlightIds = m_db.getHashMap("inflightPacketIDs");
-        m_persistentSessions = m_db.getHashMap("sessions");
-        m_enqueuedStore = m_db.getHashMap("sessionQueue");
-        m_secondPhaseStore = m_db.getHashMap("secondPhase");
+        m_inflightStore = (ConcurrentMap<String, ConcurrentMap<Integer, MessageGUID>>) m_db.hashMap("inflight").createOrOpen();
+        m_inFlightIds = (Map<String, Set<Integer>>) m_db.hashMap("inflightPacketIDs").createOrOpen();
+        m_persistentSessions = (ConcurrentMap<String, PersistentSession>) m_db.hashMap("sessions").createOrOpen();
+        m_enqueuedStore = (ConcurrentMap<String, List<MessageGUID>>) m_db.hashMap("sessionQueue").createOrOpen();
+        m_secondPhaseStore = (ConcurrentMap<String, Map<Integer, MessageGUID>>) m_db.hashMap("secondPhase").createOrOpen();
     }
 
     @Override
     public void addNewSubscription(Subscription newSubscription) {
         LOG.debug("addNewSubscription invoked with subscription {}", newSubscription);
         final String clientID = newSubscription.getClientId();
-        m_db.getHashMap("subscriptions_" + clientID).put(newSubscription.getTopicFilter(), newSubscription);
+        Map<String, Subscription> subscriptions = (Map<String, Subscription>) m_db.hashMap("subscriptions_" + clientID).createOrOpen();
+        subscriptions.put(newSubscription.getTopicFilter(), newSubscription);
 
         if (LOG.isTraceEnabled()) {
-            LOG.trace("subscriptions_{}: {}", clientID, m_db.getHashMap("subscriptions_" + clientID));
+            LOG.trace("subscriptions_{}: {}", clientID, subscriptions);
         }
     }
 
@@ -83,18 +91,23 @@ class MapDBSessionsStore implements ISessionsStore {
         if (!m_db.exists("subscriptions_" + clientID)) {
             return;
         }
-        m_db.getHashMap("subscriptions_" + clientID).remove(topicFilter);
+        Map<String, Subscription> subscriptions = (Map<String, Subscription>) m_db.hashMap("subscriptions_" + clientID).open();
+        subscriptions.remove(topicFilter);
+        
+        //m_db.getHashMap("subscriptions_" + clientID).remove(topicFilter);
     }
 
     @Override
     public void wipeSubscriptions(String clientID) {
+    	Map<String, Subscription> subscriptions = (Map<String, Subscription>) m_db.hashMap("subscriptions_" + clientID).open();
         LOG.debug("wipeSubscriptions");
         if (LOG.isTraceEnabled()) {
-            LOG.trace("Subscription pre wipe: subscriptions_{}: {}", clientID, m_db.getHashMap("subscriptions_" + clientID));
+            LOG.trace("Subscription pre wipe: subscriptions_{}: {}", clientID, subscriptions);
         }
-        m_db.delete("subscriptions_" + clientID);
+        //m_db.delete("subscriptions_" + clientID);
+        subscriptions.clear();
         if (LOG.isTraceEnabled()) {
-            LOG.trace("Subscription post wipe: subscriptions_{}: {}", clientID, m_db.getHashMap("subscriptions_" + clientID));
+            LOG.trace("Subscription post wipe: subscriptions_{}: {}", clientID, subscriptions);
         }
     }
 
@@ -102,7 +115,7 @@ class MapDBSessionsStore implements ISessionsStore {
     public List<ClientTopicCouple> listAllSubscriptions() {
         final List<ClientTopicCouple> allSubscriptions = new ArrayList<>();
         for (String clientID : m_persistentSessions.keySet()) {
-            ConcurrentMap<String, Subscription> clientSubscriptions = m_db.getHashMap("subscriptions_" + clientID);
+            ConcurrentMap<String, Subscription> clientSubscriptions = (ConcurrentMap<String, Subscription>) m_db.hashMap("subscriptions_" + clientID).createOrOpen();
             for (String topicFilter : clientSubscriptions.keySet()) {
                 allSubscriptions.add(new ClientTopicCouple(clientID, topicFilter));
             }
@@ -113,7 +126,7 @@ class MapDBSessionsStore implements ISessionsStore {
 
     @Override
     public Subscription getSubscription(ClientTopicCouple couple) {
-        ConcurrentMap<String, Subscription> clientSubscriptions = m_db.getHashMap("subscriptions_" + couple.clientID);
+        ConcurrentMap<String, Subscription> clientSubscriptions = (ConcurrentMap<String, Subscription>) m_db.hashMap("subscriptions_" + couple.clientID).createOrOpen();
         LOG.debug("subscriptions_{}: {}", couple.clientID, clientSubscriptions);
         return clientSubscriptions.get(couple.topicFilter);
     }
@@ -122,7 +135,7 @@ class MapDBSessionsStore implements ISessionsStore {
     public List<Subscription> getSubscriptions() {
         List<Subscription> subscriptions = new ArrayList<>();
         for (String clientID : m_persistentSessions.keySet()) {
-            ConcurrentMap<String, Subscription> clientSubscriptions = m_db.getHashMap("subscriptions_" + clientID);
+            ConcurrentMap<String, Subscription> clientSubscriptions = (ConcurrentMap<String, Subscription>) m_db.hashMap("subscriptions_" + clientID).createOrOpen();
             subscriptions.addAll(clientSubscriptions.values());
         }
         return subscriptions;
@@ -264,7 +277,7 @@ class MapDBSessionsStore implements ISessionsStore {
 
     @Override
     public MessageGUID mapToGuid(String clientID, int messageID) {
-        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = m_db.getHashMap(messageId2GuidsMapName(clientID));
+        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = (ConcurrentMap<Integer, MessageGUID>) m_db.hashMap(messageId2GuidsMapName(clientID)).createOrOpen();
         return messageIdToGuid.get(messageID);
     }
 

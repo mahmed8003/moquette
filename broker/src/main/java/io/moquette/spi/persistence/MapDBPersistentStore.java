@@ -85,8 +85,9 @@ public class MapDBPersistentStore implements IPersistentStore {
     @Override
     public void initStore() {
         if (m_storePath == null || m_storePath.isEmpty()) {
-            m_db = DBMaker.newMemoryDB().make();
+            m_db = DBMaker.memoryDB().make();
         } else {
+        	/*
             File tmpFile;
             try {
                 tmpFile = new File(m_storePath);
@@ -96,7 +97,8 @@ public class MapDBPersistentStore implements IPersistentStore {
                 LOG.error(null, ex);
                 throw new MQTTException("Can't create temp file for subscriptions storage [" + m_storePath + "]", ex);
             }
-            m_db = DBMaker.newFileDB(tmpFile).make();
+            */
+            m_db = DBMaker.fileDB(m_storePath).make();
         }
         m_scheduler.scheduleWithFixedDelay(new Runnable() {
             @Override

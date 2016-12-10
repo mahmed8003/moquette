@@ -15,15 +15,20 @@
  */
 package io.moquette.spi.persistence;
 
-import io.moquette.spi.IMatchingCondition;
-import io.moquette.spi.IMessagesStore;
-import io.moquette.spi.MessageGUID;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
+
 import org.mapdb.DB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentMap;
+import io.moquette.spi.IMatchingCondition;
+import io.moquette.spi.IMessagesStore;
+import io.moquette.spi.MessageGUID;
 
 /**
  * IMessagesStore implementation backed by MapDB.
@@ -48,8 +53,8 @@ class MapDBMessagesStore implements IMessagesStore {
 
     @Override
     public void initStore() {
-        m_retainedStore = m_db.getHashMap("retained");
-        m_persistentMessageStore = m_db.getHashMap("persistedMessages");
+        m_retainedStore = (ConcurrentMap<String, MessageGUID>) m_db.hashMap("retained").createOrOpen();
+        m_persistentMessageStore = (ConcurrentMap<MessageGUID, StoredMessage>) m_db.hashMap("persistedMessages").createOrOpen();
     }
 
     @Override
@@ -84,7 +89,7 @@ class MapDBMessagesStore implements IMessagesStore {
         evt.setGuid(guid);
         LOG.debug("storePublishForFuture guid <{}>", guid);
         m_persistentMessageStore.put(guid, evt);
-        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = m_db.getHashMap(MapDBSessionsStore.messageId2GuidsMapName(evt.getClientID()));
+        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = (ConcurrentMap<Integer, MessageGUID>) m_db.hashMap(MapDBSessionsStore.messageId2GuidsMapName(evt.getClientID())).createOrOpen();
         messageIdToGuid.put(evt.getMessageID(), guid);
         return guid;
     }
@@ -100,7 +105,7 @@ class MapDBMessagesStore implements IMessagesStore {
 
     @Override
     public void dropMessagesInSession(String clientID) {
-        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = m_db.getHashMap(MapDBSessionsStore.messageId2GuidsMapName(clientID));
+        ConcurrentMap<Integer, MessageGUID> messageIdToGuid = (ConcurrentMap<Integer, MessageGUID>) m_db.hashMap(MapDBSessionsStore.messageId2GuidsMapName(clientID)).createOrOpen();
         for (MessageGUID guid : messageIdToGuid.values()) {
             removeStoredMessage(guid);
         }
