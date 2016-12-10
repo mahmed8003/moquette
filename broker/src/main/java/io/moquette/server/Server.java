@@ -128,7 +128,14 @@ public class Server {
      * set of InterceptHandler.
      * */
     public void startServer(IConfig config, List<? extends InterceptHandler> handlers) throws IOException {
-        startServer(config, handlers, null, null, null, null);
+        startServer(config, handlers, null, null, null);
+    }
+    
+    public void startServer(IConfig config, List<? extends InterceptHandler> handlers,
+            ISslContextCreator sslCtxCreator, IAuthenticator authenticator,
+            IAuthorizator authorizator) throws IOException {
+    	startServer(config, handlers, sslCtxCreator, authenticator, authorizator, null);
+    	
     }
 
     public void startServer(IConfig config, List<? extends InterceptHandler> handlers,
